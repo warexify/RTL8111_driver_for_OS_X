@@ -176,6 +176,7 @@ enum
 #define kIntrMitigateName "intrMitigate"
 #define kDisableASPMName "disableASPM"
 #define kDriverVersionName "Driver_Version"
+#define kHardwareAddress "hardwareAddress"
 #define kNameLenght 64
 
 #define MINPACK                 64    // minimum output packet length with 4 FCS bytes
@@ -375,6 +376,8 @@ private:
     struct rtl8168_private linuxData;
     struct IOEthernetAddress currMacAddr;
     struct IOEthernetAddress origMacAddr;
+    struct IOEthernetAddress propMacAddr;
+    bool   gotPropMacAddr;
     
     UInt64 lastIntrTime;
     UInt16 intrMask;

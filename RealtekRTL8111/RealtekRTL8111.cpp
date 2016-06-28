@@ -176,6 +176,13 @@ bool RTL8111::start(IOService *provider)
         goto error2;
     }
     
+    if (gotPropMacAddr) {
+        if (setHardwareAddress(&propMacAddr) != kIOReturnSuccess) {
+            IOLog("Ethernet [RealtekRTL8111]: Failed to set custom MAC address.\n");
+            goto error2;
+        }
+    }
+    
     if (!setupMediumDict()) {
         IOLog("Ethernet [RealtekRTL8111]: Failed to setup medium dictionary.\n");
         goto error2;
@@ -834,7 +841,11 @@ IOReturn RTL8111::getHardwareAddress(IOEthernetAddress *addr)
     DebugLog("getHardwareAddress() ===>\n");
     
     if (addr) {
-        bcopy(&currMacAddr.bytes, addr->bytes, kIOEthernetAddressSize);
+        if (gotPropMacAddr)
+            bcopy(&propMacAddr.bytes, addr->bytes, kIOEthernetAddressSize);
+        else
+            bcopy(&currMacAddr.bytes, addr->bytes, kIOEthernetAddressSize);
+        
         result = kIOReturnSuccess;
     }
     
@@ -1134,7 +1145,8 @@ void RTL8111::getParams()
     OSBoolean *csoV6;
     OSBoolean *noASPM;
     OSString *versionString;
-
+    OSString *hardwareAddress;
+    
     noASPM = OSDynamicCast(OSBoolean, getProperty(kDisableASPMName));
     disableASPM = (noASPM) ? noASPM->getValue() : false;
     
@@ -1179,8 +1191,24 @@ void RTL8111::getParams()
 #else
     if (intrMit)
         intrMitigateValue = intrMit->unsigned16BitValue();
-#endif /* __PRIVATE_SPI__ */
-
+    
+    hardwareAddress = OSDynamicCast(OSString, getProperty(kHardwareAddress));
+    
+    int numBytes = 0;
+    if (hardwareAddress && hardwareAddress->getLength() == 12)
+        numBytes = sscanf(hardwareAddress->getCStringNoCopy(), "%02hhx%02hhx%02hhx%02hhx%02hhx%02hhx",
+               &propMacAddr.bytes[0], &propMacAddr.bytes[1],
+               &propMacAddr.bytes[2], &propMacAddr.bytes[3],
+               &propMacAddr.bytes[4], &propMacAddr.bytes[5]);
+    
+    gotPropMacAddr = (6 == numBytes) ? true: false;
+    
+    if (gotPropMacAddr)
+        IOLog("Ethernet [RealtekRTL8111]: Got custom MAC address %02x:%02x:%02x:%02x:%02x:%02x.\n",
+          propMacAddr.bytes[0], propMacAddr.bytes[1],
+          propMacAddr.bytes[2], propMacAddr.bytes[3],
+          propMacAddr.bytes[4], propMacAddr.bytes[5]);
+    
     versionString = OSDynamicCast(OSString, getProperty(kDriverVersionName));
     
     if (versionString)
@@ -2753,8 +2781,8 @@ bool RTL8111::initRTL8111()
 		currMacAddr.bytes[i] = ReadReg8(MAC0 + i);
 		origMacAddr.bytes[i] = currMacAddr.bytes[i]; /* keep the original MAC address */
 	}
-    IOLog("Ethernet [RealtekRTL8111]: %s: (Chipset %d) at 0x%p, %2.2x:%2.2x:%2.2x:%2.2x:%2.2x:%2.2x\n",
-          rtl_chip_info[tp->chipset].name, tp->chipset, baseAddr,
+    IOLog("Ethernet [RealtekRTL8111]: %s: (Chipset %d) at 0x%lx, %02x:%02x:%02x:%02x:%02x:%02x\n",
+          rtl_chip_info[tp->chipset].name, tp->chipset, (unsigned long)baseAddr,
           origMacAddr.bytes[0], origMacAddr.bytes[1],
           origMacAddr.bytes[2], origMacAddr.bytes[3],
           origMacAddr.bytes[4], origMacAddr.bytes[5]);
