@@ -60,6 +60,12 @@
 #include "r8168_realwow.h"
 */
 
+// Linux defines
+u8  __readb(const void __iomem *addr);
+void __writeb(u8  val, void __iomem *addr);
+#define readb(b)        __readb(b)
+#define writeb(v,b)        __writeb(v,b)
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,37)
 #define ENABLE_R8168_PROCFS
 #endif
@@ -167,7 +173,7 @@ RTL_SET_VLAN;
 #define NAPI_SUFFIX ""
 #endif
 
-#define RTL8168_VERSION "8.040.00" NAPI_SUFFIX
+#define RTL8168_VERSION "8.045.08" NAPI_SUFFIX
 #define MODULENAME "r8168"
 #define PFX MODULENAME ": "
 
@@ -921,10 +927,10 @@ if(!(expr)) {                   \
         FuncEventMask   = 0xF4,
         TimeInt3        = 0xF4,
         FuncPresetState = 0xF8,
-        IBCR0           = 0xF8,
-        IBCR2           = 0xF9,
-        IBIMR0          = 0xFA,
-        IBISR0          = 0xFB,
+        CMAC_IBCR0      = 0xF8,
+        CMAC_IBCR2      = 0xF9,
+        CMAC_IBIMR0     = 0xFA,
+        CMAC_IBISR0     = 0xFB,
         FuncForceEvent  = 0xFC,
     };
     
@@ -1422,9 +1428,22 @@ if(!(expr)) {                   \
         
         u8 RequiredSecLanDonglePatch;
         
+        u32 HwFiberModeVer;
+        u32 HwFiberStat;
+        
+        u8 HwSuppMagicPktVer;
+        
+        u8 HwSuppCheckPhyDisableModeVer;
+        
+        u8 random_mac;
+
         //Dash+++++++++++++++++
         u8 HwSuppDashVer;
         u8 DASH;
+        u8 dash_printer_enabled;
+        u8 HwPkgDet;
+        void __iomem *mapped_cmac_ioaddr; /* mapped cmac memory map physical address */
+        void __iomem *cmac_ioaddr; /* cmac memory map physical address */
         
 #if DISABLED_CODE
         
@@ -1550,6 +1569,8 @@ if(!(expr)) {                   \
         CFG_METHOD_28,
         CFG_METHOD_29,
         CFG_METHOD_30,
+        CFG_METHOD_31,
+        CFG_METHOD_32,
         CFG_METHOD_MAX,
         CFG_METHOD_DEFAULT = 0xFF
     };
@@ -1559,7 +1580,10 @@ if(!(expr)) {                   \
 #define OOB_CMD_DRIVER_STOP 0x06
 #define OOB_CMD_SET_IPMAC   0x41
     
-    
+#define WAKEUP_MAGIC_PACKET_NOT_SUPPORT (0)
+#define WAKEUP_MAGIC_PACKET_V1 (1)
+#define WAKEUP_MAGIC_PACKET_V2 (2)
+
     //Ram Code Version
 #define NIC_RAMCODE_VERSION_CFG_METHOD_14 (0x0057)
 #define NIC_RAMCODE_VERSION_CFG_METHOD_16 (0x0055)
@@ -1724,6 +1748,8 @@ RX_DASH_BUFFER_TYPE_2, *PRX_DASH_BUFFER_TYPE_2;
 #define HW_DASH_SUPPORT_DASH(_M)        ((_M)->HwSuppDashVer > 0 )
 #define HW_DASH_SUPPORT_TYPE_1(_M)        ((_M)->HwSuppDashVer == 1 )
 #define HW_DASH_SUPPORT_TYPE_2(_M)        ((_M)->HwSuppDashVer == 2 )
+#define HW_DASH_SUPPORT_TYPE_3(_M)        ((_M)->HwSuppDashVer == 3 )
+#define HW_SUPPORT_CHECK_PHY_DISABLE_MODE(_M)        ((_M)->HwSuppCheckPhyDisableModeVer > 0 )
 
 #define RECV_FROM_FW_BUF_SIZE (1518)
 #define SEND_TO_FW_BUF_SIZE (1518)
@@ -1779,6 +1805,22 @@ RX_DASH_BUFFER_TYPE_2, *PRX_DASH_BUFFER_TYPE_2;
 #define CMAC_OOB_STOP 0x25
 #define CMAC_OOB_INIT 0x26
 #define CMAC_OOB_RESET 0x2a
+
+#define NO_BASE_ADDRESS 0x00000000
+#define RTL8168FP_OOBMAC_BASE 0xBAF70000
+#define RTL8168FP_CMAC_IOBASE 0xBAF20000
+#define RTL8168FP_KVM_BASE 0xBAF80400
+#define CMAC_SYNC_REG 0x20
+#define CMAC_RXDESC_OFFSET 0x90    //RX: 0x90 - 0x98
+#define CMAC_TXDESC_OFFSET 0x98    //TX: 0x98 - 0x9F
+
+/* cmac write/read MMIO register */
+#define RTL_CMAC_W8(reg, val8)   writeb ((val8), (u8*)tp->cmac_ioaddr + (reg))
+#define RTL_CMAC_W16(reg, val16) writew ((val16), tp->cmac_ioaddr + (reg))
+#define RTL_CMAC_W32(reg, val32) writel ((val32), tp->cmac_ioaddr + (reg))
+#define RTL_CMAC_R8(reg)     readb ((u8*)tp->cmac_ioaddr + (reg))
+#define RTL_CMAC_R16(reg)        readw (tp->cmac_ioaddr + (reg))
+#define RTL_CMAC_R32(reg)        ((unsigned long) readl (tp->cmac_ioaddr + (reg)))
 
 int rtl8168_dash_ioctl(struct net_device *dev, struct ifreq *ifr);
 void HandleDashInterrupt(struct net_device *dev);
@@ -1838,3 +1880,6 @@ void mdio_write_phy_ocp(struct rtl8168_private *tp, u16 PageNum, u32 RegAddr, u3
 void rtl8168_get_bios_setting(struct net_device *dev);
 int rtl8168_check_dash(struct rtl8168_private *tp);
 void set_offset711(struct rtl8168_private *tp, u8 setting);
+
+u32 rtl8168_eri_read_with_oob_base_address(void __iomem *ioaddr, int addr, int len, int type, const u32 base_address);
+int rtl8168_eri_write_with_oob_base_address(void __iomem *ioaddr, int addr, int len, u32 value, int type, const u32 base_address);
