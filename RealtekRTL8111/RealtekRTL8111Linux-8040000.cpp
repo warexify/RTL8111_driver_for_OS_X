@@ -1996,6 +1996,8 @@ int rtl8168_check_dash(struct rtl8168_private *tp)
 
 void Dash2DisableTx(struct rtl8168_private *tp)
 {
+    void __iomem *ioaddr = tp->mmio_addr;
+    
     if (!tp->DASH) return;
     
     if (HW_DASH_SUPPORT_TYPE_2(tp) || HW_DASH_SUPPORT_TYPE_3(tp)) {
@@ -2025,6 +2027,8 @@ void Dash2DisableTx(struct rtl8168_private *tp)
 
 void Dash2EnableTx(struct rtl8168_private *tp)
 {
+    void __iomem *ioaddr = tp->mmio_addr;
+    
     if (!tp->DASH) return;
     
     if (HW_DASH_SUPPORT_TYPE_2(tp) || HW_DASH_SUPPORT_TYPE_3(tp)) {
@@ -2034,6 +2038,8 @@ void Dash2EnableTx(struct rtl8168_private *tp)
 
 void Dash2DisableRx(struct rtl8168_private *tp)
 {
+    void __iomem *ioaddr = tp->mmio_addr;
+    
     if (!tp->DASH) return;
     
     if (HW_DASH_SUPPORT_TYPE_2(tp) || HW_DASH_SUPPORT_TYPE_3(tp)) {
@@ -2043,6 +2049,8 @@ void Dash2DisableRx(struct rtl8168_private *tp)
 
 void Dash2EnableRx(struct rtl8168_private *tp)
 {
+    void __iomem *ioaddr = tp->mmio_addr;
+    
     if (!tp->DASH) return;
     
     if (HW_DASH_SUPPORT_TYPE_2(tp) || HW_DASH_SUPPORT_TYPE_3(tp)) {

@@ -223,6 +223,13 @@ _OSReadInt8((base), (byteOffset))
 #define RTL_R16(reg)            OSReadLittleInt16((ioaddr), (reg))
 #define RTL_R32(reg)            OSReadLittleInt32((ioaddr), (reg))
 
+#define RTL_CMAC_W8(reg, val8)  RTL_W8(reg, val8)
+#define RTL_CMAC_W16(reg, val16) RTL_W16(reg, val16)
+#define RTL_CMAC_W32(reg, val32) RTL_W32(reg, val32)
+#define RTL_CMAC_R8(reg)         RTL_R8(reg)
+#define RTL_CMAC_R16(reg)        RTL_R16(reg)
+#define RTL_CMAC_R32(reg)        RTL_R32(reg)
+
 #define wmb() OSSynchronizeIO()
 
 /******************************************************************************/

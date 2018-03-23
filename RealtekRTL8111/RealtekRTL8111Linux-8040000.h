@@ -61,10 +61,10 @@
 */
 
 // Linux defines
-u8  __readb(const void __iomem *addr);
+/*u8  __readb(const void __iomem *addr);
 void __writeb(u8  val, void __iomem *addr);
 #define readb(b)        __readb(b)
-#define writeb(v,b)        __writeb(v,b)
+#define writeb(v,b)        __writeb(v,b)*/
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,37)
 #define ENABLE_R8168_PROCFS
@@ -1442,8 +1442,6 @@ if(!(expr)) {                   \
         u8 DASH;
         u8 dash_printer_enabled;
         u8 HwPkgDet;
-        void __iomem *mapped_cmac_ioaddr; /* mapped cmac memory map physical address */
-        void __iomem *cmac_ioaddr; /* cmac memory map physical address */
         
 #if DISABLED_CODE
         
@@ -1813,14 +1811,6 @@ RX_DASH_BUFFER_TYPE_2, *PRX_DASH_BUFFER_TYPE_2;
 #define CMAC_SYNC_REG 0x20
 #define CMAC_RXDESC_OFFSET 0x90    //RX: 0x90 - 0x98
 #define CMAC_TXDESC_OFFSET 0x98    //TX: 0x98 - 0x9F
-
-/* cmac write/read MMIO register */
-#define RTL_CMAC_W8(reg, val8)   writeb ((val8), (u8*)tp->cmac_ioaddr + (reg))
-#define RTL_CMAC_W16(reg, val16) writew ((val16), tp->cmac_ioaddr + (reg))
-#define RTL_CMAC_W32(reg, val32) writel ((val32), tp->cmac_ioaddr + (reg))
-#define RTL_CMAC_R8(reg)     readb ((u8*)tp->cmac_ioaddr + (reg))
-#define RTL_CMAC_R16(reg)        readw (tp->cmac_ioaddr + (reg))
-#define RTL_CMAC_R32(reg)        ((unsigned long) readl (tp->cmac_ioaddr + (reg)))
 
 int rtl8168_dash_ioctl(struct net_device *dev, struct ifreq *ifr);
 void HandleDashInterrupt(struct net_device *dev);
