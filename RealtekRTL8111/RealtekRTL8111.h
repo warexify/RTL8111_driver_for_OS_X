@@ -178,6 +178,9 @@ enum
 #define kDriverVersionName "Driver_Version"
 #define kNameLenght 64
 
+#define MINPACK                 64    // minimum output packet length with 4 FCS bytes
+#define MAXPACK                 1518  // maximum output packet length with 4 FCS bytes
+
 #ifdef __PRIVATE_SPI__
 
 #define kEnableRxPollName "rxPolling"
@@ -206,6 +209,13 @@ public:
 	/* IONetworkController methods. */	
 	virtual IOReturn enable(IONetworkInterface *netif);
 	virtual IOReturn disable(IONetworkInterface *netif);
+    
+    /* KDP */
+    virtual IOReturn enable(IOKernelDebugger *netif);
+    virtual IOReturn disable(IOKernelDebugger *netif);
+    virtual void sendPacket( void *pkt, UInt32 pktLen );
+    virtual void receivePacket( void * pkt, UInt32 * pktLen, UInt32 timeout );
+    
 	
 #ifdef __PRIVATE_SPI__
     virtual IOReturn outputStart(IONetworkInterface *interface, IOOptionBits options );
@@ -303,6 +313,7 @@ private:
 	OSDictionary *mediumDict;
 	IONetworkMedium *mediumTable[MEDIUM_INDEX_COUNT];
 	IOBasicOutputQueue *txQueue;
+    IOKernelDebugger *debugger;
 	
 	IOInterruptEventSource *interruptSource;
 	IOTimerEventSource *timerSource;

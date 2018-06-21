@@ -116,6 +116,7 @@ void RTL8111::free()
         workLoop->release();
         workLoop = NULL;
     }
+    RELEASE(debugger);
     RELEASE(commandGate);
     RELEASE(txQueue);
     RELEASE(mediumDict);
@@ -197,6 +198,8 @@ bool RTL8111::start(IOService *provider)
         IOLog("Ethernet [RealtekRTL8111]: attachInterface() failed.\n");
         goto error3;
     }
+    
+    attachDebuggerClient(&debugger);
     pciDevice->close(this);
     result = true;
     
@@ -537,8 +540,11 @@ UInt32 RTL8111::outputPacket(mbuf_t m, void *param)
     UInt32 lastSeg;
     UInt32 index;
     UInt32 i;
+    IODebuggerLockState lockState;
     
-    //DebugLog("outputPacket() ===>\n");
+    DebugLog("outputPacket() ===>\n");
+    
+    lockState = IODebuggerLock(this);
     
     if (!(isEnabled && linkUp)) {
         DebugLog("Ethernet [RealtekRTL8111]: Interface down. Dropping packet.\n");
@@ -618,6 +624,8 @@ UInt32 RTL8111::outputPacket(mbuf_t m, void *param)
 
 done:
     //DebugLog("outputPacket() <===\n");
+    
+    IODebuggerUnlock(lockState);
     
     return result;
         
@@ -1858,6 +1866,8 @@ void RTL8111::interruptOccurred(OSObject *client, IOInterruptEventSource *src, i
 	UInt16 status;
     UInt16 rxMask;
     
+    IODebuggerLockState lockState = IODebuggerLock(this);
+    
 	WriteReg16(IntrMask, 0x0000);
     status = ReadReg16(IntrStatus);
     
@@ -1899,6 +1909,8 @@ void RTL8111::interruptOccurred(OSObject *client, IOInterruptEventSource *src, i
 done:
     WriteReg16(IntrStatus, status);
 	WriteReg16(IntrMask, intrMask);
+    
+    IODebuggerUnlock(lockState);
 }
 
 bool RTL8111::checkForDeadlock()

@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A627CBB820DC4CBA0027D666 /* RealtekRTL8111_kdp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A627CBB720DC4CBA0027D666 /* RealtekRTL8111_kdp.cpp */; };
+		A627CBB920DC4CBA0027D666 /* RealtekRTL8111_kdp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A627CBB720DC4CBA0027D666 /* RealtekRTL8111_kdp.cpp */; };
 		D34D36B61AD2F62B00EEEC08 /* RealtekRTL8111.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D37BD69716C6065300C255A2 /* RealtekRTL8111.cpp */; };
 		D34D36BF1AD2F62B00EEEC08 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = D37BD68716C605F500C255A2 /* InfoPlist.strings */; };
 		D363E4B61BF2A04E00C8E36C /* RealtekRTL8111Linux-8040000.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D363E4B51BF2A04E00C8E36C /* RealtekRTL8111Linux-8040000.cpp */; };
@@ -16,6 +18,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A627CBB720DC4CBA0027D666 /* RealtekRTL8111_kdp.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = RealtekRTL8111_kdp.cpp; sourceTree = "<group>"; };
 		D34D36C41AD2F62B00EEEC08 /* RealtekRTL8111.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RealtekRTL8111.kext; sourceTree = BUILT_PRODUCTS_DIR; };
 		D34D36C61AD2F71600EEEC08 /* RealtekRTL8111-V2-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "RealtekRTL8111-V2-Prefix.pch"; sourceTree = "<group>"; };
 		D34D36C91AD2F7A900EEEC08 /* APPLE_LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = APPLE_LICENSE; sourceTree = "<group>"; };
@@ -103,6 +106,7 @@
 			children = (
 				D37BD69616C6065300C255A2 /* RealtekRTL8111.h */,
 				D37BD69716C6065300C255A2 /* RealtekRTL8111.cpp */,
+				A627CBB720DC4CBA0027D666 /* RealtekRTL8111_kdp.cpp */,
 				D363E4B41BF29B4D00C8E36C /* RealtekRTL8111Linux-8040000.h */,
 				D363E4B51BF2A04E00C8E36C /* RealtekRTL8111Linux-8040000.cpp */,
 				D37BD69B16C6068D00C255A2 /* linux.h */,
@@ -255,6 +259,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D363E4B71BF2A04E00C8E36C /* RealtekRTL8111Linux-8040000.cpp in Sources */,
+				A627CBB920DC4CBA0027D666 /* RealtekRTL8111_kdp.cpp in Sources */,
 				D34D36B61AD2F62B00EEEC08 /* RealtekRTL8111.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -264,6 +269,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D363E4B61BF2A04E00C8E36C /* RealtekRTL8111Linux-8040000.cpp in Sources */,
+				A627CBB820DC4CBA0027D666 /* RealtekRTL8111_kdp.cpp in Sources */,
 				D37BD69916C6065300C255A2 /* RealtekRTL8111.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
