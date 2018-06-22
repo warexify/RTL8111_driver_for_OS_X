@@ -9,6 +9,8 @@
 
 #include "RealtekRTL8111.h"
 
+enum { kDebuggerPollDelayUS = 10 };
+
 IOReturn RTL8111::enable(IOKernelDebugger *netif) {
     return kIOReturnSuccess;
 }
@@ -18,86 +20,164 @@ IOReturn RTL8111::disable(IOKernelDebugger *netif) {
 }
 
 void RTL8111::sendPacket(void *pkt, UInt32 pktLen) {
-    UInt8 *pDest;
     
-    if (pktLen > MAXPACK - 4)    // account for 4 FCS bytes
+    IOPhysicalSegment txSegments[kMaxSegs];
+    RtlDmaDesc *desc, *firstDesc;
+    UInt32 result = kIOReturnOutputDropped;
+    UInt32 cmd = 0;
+    UInt32 opts2 = 0;
+    mbuf_tso_request_flags_t tsoFlags;
+    mbuf_csum_request_flags_t checksums;
+    UInt32 mssValue;
+    UInt32 opts1;
+    UInt32 vlanTag;
+    UInt32 numSegs;
+    UInt32 lastSeg;
+    UInt32 index;
+    UInt32 i;
+    
+    if (!pkt || pktLen > kIOEthernetMaxPacketSize) {
         return;
-
-    // TODO: Implement
-    // Poll until a transmit buffer becomes available.
-//    while ( kOwnedByChip == fTxBufOwnership[ fTxSendIndex ] )
-//        reclaimTransmitBuffer();
-    
-    txDescArray
-    pDest = txDescArray + txNextDescIndex * TX_BUF_SIZE;
-    
-    
-    
-    
-    bcopy(pkt, pDest, pktLen);    // Copy debugger packet to the Tx buffer
-    
-    // Pad small frames:
-    
-    if ( pktLen < MINPACK - 4 )        // account for 4 FCS bytes
-    {
-        memset(pDest + pktLen, 0x55, MINPACK - 4 - pktLen);
-        pktLen = MINPACK - 4;
     }
-    // Start the Tx by setting the frame length and clearing ownership:
     
-//    csrWrite32( RTL_TSD0 + fTxSendIndex * sizeof( UInt32 ), pktLen | fTSD_ERTXTH );
-//
-//    fTxSendCount++;
-//    fTxBufOwnership[ fTxSendIndex ] = kOwnedByChip;
-//
-//    if ( ++fTxSendIndex >= kTxBufferCount )
-//        fTxSendIndex = 0;
+    memcpy(mbuf_data(fKDPMbuf), pkt, pktLen);
+    
+    numSegs = txMbufCursor->getPhysicalSegmentsWithCoalesce(fKDPMbuf, &txSegments[0], kMaxSegs);
+    
+    if (!numSegs) {
+        DebugLog("Ethernet [RealtekRTL8111]: getPhysicalSegmentsWithCoalesce() failed. Dropping packet.\n");
+        etherStats->dot3TxExtraEntry.resourceErrors++;
+        goto error;
+    }
+    if (mbuf_get_tso_requested(fKDPMbuf, &tsoFlags, &mssValue)) {
+        DebugLog("Ethernet [RealtekRTL8111]: mbuf_get_tso_requested() failed. Dropping packet.\n");
+        goto error;
+    }
+    if (tsoFlags & (MBUF_TSO_IPV4 | MBUF_TSO_IPV6)) {
+        if (tsoFlags & MBUF_TSO_IPV4) {
+            getTso4Command(&cmd, &opts2, mssValue, tsoFlags);
+        } else {
+            /* The pseudoheader checksum has to be adjusted first. */
+            //adjustIPv6Header(fKDPMbuf);
+            getTso6Command(&cmd, &opts2, mssValue, tsoFlags);
+        }
+    } else {
+        /* We use mssValue as a dummy here because it isn't needed anymore. */
+        mbuf_get_csum_requested(fKDPMbuf, &checksums, &mssValue);
+        getChecksumCommand(&cmd, &opts2, checksums);
+    }
+    /* Alloc required number of descriptors. As the descriptor which has been freed last must be
+     * considered to be still in use we never fill the ring completely but leave at least one
+     * unused.
+     */
+    if ((txNumFreeDesc <= numSegs)) {
+        DebugLog("Ethernet [RealtekRTL8111]: Not enough descriptors. Stalling.\n");
+        result = kIOReturnOutputStall;
+        stalled = true;
+        goto done;
+    }
+    OSAddAtomic(-numSegs, &txNumFreeDesc);
+    index = txNextDescIndex;
+    txNextDescIndex = (txNextDescIndex + numSegs) & kTxDescMask;
+    firstDesc = &txDescArray[index];
+    lastSeg = numSegs - 1;
+    
+    /* Next fill in the VLAN tag. */
+    opts2 |= (getVlanTagDemand(fKDPMbuf, &vlanTag)) ? (OSSwapInt16(vlanTag) | TxVlanTag) : 0;
+    
+    /* And finally fill in the descriptors. */
+    for (i = 0; i < numSegs; i++) {
+        desc = &txDescArray[index];
+        opts1 = (((UInt32)txSegments[i].length) | cmd);
+        opts1 |= (i == 0) ? FirstFrag : DescOwn;
+        
+        if (i == lastSeg) {
+            opts1 |= LastFrag;
+            txMbufArray[index] = fKDPMbuf;
+        } else {
+            txMbufArray[index] = NULL;
+        }
+        if (index == kTxLastDesc)
+            opts1 |= RingEnd;
+        
+        desc->addr = OSSwapHostToLittleInt64(txSegments[i].location);
+        desc->opts2 = OSSwapHostToLittleInt32(opts2);
+        desc->opts1 = OSSwapHostToLittleInt32(opts1);
+        
+        //DebugLog("opts1=0x%x, opts2=0x%x, addr=0x%llx, len=0x%llx\n", opts1, opts2, txSegments[i].location, txSegments[i].length);
+        ++index &= kTxDescMask;
+    }
+    firstDesc->opts1 |= DescOwn;
+    
+    /* Set the polling bit. */
+    WriteReg8(TxPoll, NPQ);
+    
+    result = kIOReturnOutputSuccess;
+    
+done:
+    //DebugLog("outputPacket() <===\n");
     
     return;
+    
+error:
+
+    goto done;
 }
 
-void RTL8111::receivePacket( void * pkt, UInt32 * pktLen, UInt32 timeout ) {
-    UInt16 status, count;    // from buffer header
-    UInt16 rxLen;
+void RTL8111::receivePacket(void * pkt, UInt32 * pktLen, UInt32 timeout) {
+    int timeoutUS = timeout * 1000;
+    
+    IOPhysicalSegment rxSegment;
+    RtlDmaDesc *desc = &rxDescArray[rxNextDescIndex];
+    mbuf_t bufPkt, newPkt;
+    UInt64 addr;
+    UInt32 opts1, opts2;
+    UInt32 descStatus1, descStatus2;
+    UInt32 pktSize;
+    UInt32 goodPkts = 0;
+    UInt16 vlanTag;
+    
+    UInt16 rxMask;
     
     *pktLen = 0;
-    timeout *= 1000;  // convert ms to us
     
-    while (timeout && *pktLen == 0)
-    {
-        if ((ReadReg8(ChipCmd) & RxBufEmpty) == RxBufEmpty)
-        {        // Receive buffer empty, wait and retry.
-            IODelay(50);
-            timeout -= 50;
-            continue;
+    while (1) {
+        UInt16 status;
+        
+        WriteReg16(IntrMask, 0x0000);
+        status = ReadReg16(IntrStatus);
+        
+        if (status & (RxOK | RxDescUnavail | RxFIFOOver)) {
+            break;
         }
+        
+        if (timeoutUS <= 0) {
+            return; // timed out. Return to KDP
+        }
+        
+        IODelay(kDebuggerPollDelayUS);
+        timeoutUS -= kDebuggerPollDelayUS;
+    }
+    descStatus1 = OSSwapLittleToHostInt32(desc->opts1);
+    opts1 = (rxNextDescIndex == kRxLastDesc) ? (RingEnd | DescOwn) : DescOwn;
+    opts2 = 0;
+    addr = 0;
+    pktSize = (descStatus1 & 0x1fff) - kIOEthernetCRCSize;
+    bufPkt = rxMbufArray[rxNextDescIndex];
+    
+    const UInt8 * frameData = (const UInt8 *) mbuf_data(rxMbufArray[rxNextDescIndex]);
+    memcpy(pkt, frameData, pktSize);
+    *pktLen = pktSize;
+    
+nextDesc:
+    if (addr)
+        desc->addr = OSSwapHostToLittleInt64(addr);
+    
+    desc->opts2 = OSSwapHostToLittleInt32(opts2);
+    desc->opts1 = OSSwapHostToLittleInt32(opts1);
+    
+    ++rxNextDescIndex &= kRxDescMask;
+    desc = &rxDescArray[rxNextDescIndex];
 
-        status    = OSReadLittleInt16( rxDescArray->addr, fRxOffset );
-        count    = OSReadLittleInt16( fpRxBuffer, fRxOffset + sizeof( UInt16 ) );
-//        rxLen    = count;        // includes 4 bytes of FCS
-//        fRxOffset += 2 * sizeof( UInt16 );    // move past buffer header
-//
-//        //    kprintf( "RTL8139::receivePacket status %x len %d\n", status, rxLen );
-//
-//        if ( status & (R_RSR_FAE | R_RSR_CRC | R_RSR_LONG | R_RSR_RUNT | R_RSR_ISE) )
-//            status &= ~R_RSR_ROK;
-//
-//        if ( (status & R_RSR_ROK) == 0 )
-//        {
-//            restartReceiver();
-//            continue;
-//        }
-//
-//        if ( rxLen >= MINPACK && rxLen <= MAXPACK )
-//        {
-//            bcopy( fpRxBuffer + fRxOffset, pkt, rxLen );
-//            *pktLen = rxLen;
-//        }
-//
-//        // Advance the Rx ring buffer to the start of the next packet:
-//
-//        fRxOffset += IORound( rxLen, 4 );
-//        csrWrite16( RTL_CAPR, fRxOffset - 0x10 );    // leave a small gap
-    }/* end WHILE */
     return;
 }

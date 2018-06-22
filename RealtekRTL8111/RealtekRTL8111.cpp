@@ -116,6 +116,11 @@ void RTL8111::free()
         workLoop->release();
         workLoop = NULL;
     }
+    if (fKDPMbuf)
+    {
+        freePacket(fKDPMbuf);
+        fKDPMbuf = 0;
+    }
     RELEASE(debugger);
     RELEASE(commandGate);
     RELEASE(txQueue);
@@ -200,6 +205,7 @@ bool RTL8111::start(IOService *provider)
     }
     
     attachDebuggerClient(&debugger);
+    
     pciDevice->close(this);
     result = true;
     
@@ -338,6 +344,15 @@ IOReturn RTL8111::enable(IONetworkInterface *netif)
         IOLog("Ethernet [RealtekRTL8111]: Error allocating DMA descriptors.\n");
         goto done;
     }
+#define BFE_BUFFER_SIZE        (1518+32)
+    fKDPMbuf = allocatePacket(BFE_BUFFER_SIZE);
+    if (!fKDPMbuf || txMbufCursor->getPhysicalSegments(fKDPMbuf, &fKDPMbufSeg) != 1)
+    {
+        IOLog("Ethernet [RealtekRTL8111]L Error allocating debugger packet.\n");
+        goto done;
+    }
+
+    
     selectedMedium = getSelectedMedium();
     
     if (!selectedMedium) {

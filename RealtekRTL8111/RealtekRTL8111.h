@@ -313,7 +313,6 @@ private:
 	OSDictionary *mediumDict;
 	IONetworkMedium *mediumTable[MEDIUM_INDEX_COUNT];
 	IOBasicOutputQueue *txQueue;
-    IOKernelDebugger *debugger;
 	
 	IOInterruptEventSource *interruptSource;
 	IOTimerEventSource *timerSource;
@@ -369,6 +368,11 @@ private:
     UInt64 lastIntrTime;
     UInt16 intrMask;
     UInt16 intrMitigateValue;
+    
+    /* Kernel debugging */
+    mbuf_t fKDPMbuf;
+    IOPhysicalSegment fKDPMbufSeg;
+    IOKernelDebugger *debugger;
     
 #ifdef __PRIVATE_SPI__
     UInt16 intrMaskRxTx;
