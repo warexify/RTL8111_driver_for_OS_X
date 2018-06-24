@@ -80,8 +80,8 @@ enum {
 
 /* RTL8111's dma descriptor. */
 typedef struct RtlDmaDesc {
-    UInt32 opts1;
-    UInt32 opts2;
+    UInt32 opts1; // status
+    UInt32 opts2; // count
     UInt64 addr;
 } RtlDmaDesc;
 
@@ -213,6 +213,17 @@ public:
     /* KDP */
     virtual IOReturn enable(IOKernelDebugger *netif);
     virtual IOReturn disable(IOKernelDebugger *netif);
+    
+    bool enableAdapter(UInt32 level);
+    bool disableAdapter(UInt32 level);
+    bool setActivationLevel(UInt32 level);
+    
+    enum {
+        kActivationLevelDisable = 0,
+        kActivationLevelKDP,
+        kActivationLevelBSD
+    };
+    
     virtual void sendPacket( void *pkt, UInt32 pktLen );
     virtual void receivePacket( void * pkt, UInt32 * pktLen, UInt32 timeout );
     
@@ -370,9 +381,11 @@ private:
     UInt16 intrMitigateValue;
     
     /* Kernel debugging */
-    mbuf_t fKDPMbuf;
     IOPhysicalSegment fKDPMbufSeg;
     IOKernelDebugger *debugger;
+    UInt32 currentLevel;
+    bool enabledByKDP;
+    bool enabledByBSD;
     
 #ifdef __PRIVATE_SPI__
     UInt16 intrMaskRxTx;

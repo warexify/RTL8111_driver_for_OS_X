@@ -116,11 +116,7 @@ void RTL8111::free()
         workLoop->release();
         workLoop = NULL;
     }
-    if (fKDPMbuf)
-    {
-        freePacket(fKDPMbuf);
-        fKDPMbuf = 0;
-    }
+    
     RELEASE(debugger);
     RELEASE(commandGate);
     RELEASE(txQueue);
@@ -205,6 +201,8 @@ bool RTL8111::start(IOService *provider)
     }
     
     attachDebuggerClient(&debugger);
+    
+    netif->registerService();
     
     pciDevice->close(this);
     result = true;
@@ -321,116 +319,167 @@ void RTL8111::systemWillShutdown(IOOptionBits specifier)
     super::systemWillShutdown(specifier);
 }
 
+bool RTL8111::enableAdapter(UInt32 level) {
+
+    bool result = false;
+    const IONetworkMedium *selectedMedium;
+    
+    DebugLog("enableAdapter() ===>\n");
+    DebugLog("Ethernet [RealtekRTL8111] enable level %d\n", level);
+    
+    switch (level) {
+        case kActivationLevelKDP:
+            if (!pciDevice || !pciDevice->open(this)) {
+                IOLog("Ethernet [RealtekRTL8111]: Unable to open PCI device.\n");
+                break;
+            }
+            
+            if (!setupDMADescriptors()) {
+                IOLog("Ethernet [RealtekRTL8111]: Error allocating DMA descriptors.\n");
+                break;
+            }
+                        
+            selectedMedium = getSelectedMedium();
+            
+            if (!selectedMedium) {
+                DebugLog("Ethernet [RealtekRTL8111]: No medium selected. Falling back to autonegotiation.\n");
+                selectedMedium = mediumTable[MEDIUM_INDEX_AUTO];
+            }
+            selectMedium(selectedMedium);
+            enableRTL8111();
+            
+            txDescDoneCount = txDescDoneLast = 0;
+            deadlockWarn = 0;
+            needsUpdate = false;
+            isEnabled = true;
+            
+#ifdef __PRIVATE_SPI__
+            polling = false;
+#else
+            txQueue->setCapacity(kTransmitQueueCapacity);
+            stalled = false;
+#endif /* __PRIVATE_SPI__ */
+            
+            if (!revisionC)
+                timerSource->setTimeoutMS(kTimeoutMS);
+            
+            for (int i = 0; i < 100; i++) {
+                
+                UInt16 status = ReadReg16(IntrStatus);
+                if (status & LinkChg) {
+                    WriteReg16(IntrStatus, LinkChg);
+                    break;
+                }
+                
+                IOSleep(10);
+            }
+            
+            result = true;
+            break;
+            
+        case kActivationLevelBSD:
+            interruptSource->enable();
+            result = true;
+            break;
+    }
+    
+    return result;
+}
+
+bool RTL8111::disableAdapter(UInt32 level) {
+    IOReturn result = false;
+    
+    DebugLog("disable() ===>\n");
+    DebugLog("Ethernet [RealtekRTL8111] disable currentLevel %d\n", currentLevel);
+    
+    switch (currentLevel) {
+        case kActivationLevelKDP:
+            
+            isEnabled = false;
+            
+            timerSource->cancelTimeout();
+            needsUpdate = false;
+            txDescDoneCount = txDescDoneLast = 0;
+            
+            disableRTL8111();
+            
+            txClearDescriptors();
+            
+            if (pciDevice && pciDevice->isOpen())
+                pciDevice->close(this);
+            
+            freeDMADescriptors();
+            result = true;
+            break;
+            
+        case kActivationLevelBSD:
+            WriteReg16(IntrMask, 0);
+            WriteReg16(IntrStatus, ReadReg16(IntrStatus));
+            /* Disable interrupt as we are using msi. */
+            interruptSource->disable();
+            workLoop->disableAllInterrupts();
+            
+#ifdef __PRIVATE_SPI__
+            netif->stopOutputThread();
+            netif->flushOutputQueue();
+            
+            polling = false;
+#else
+            txQueue->stop();
+            txQueue->flush();
+            txQueue->setCapacity(0);
+            stalled = false;
+#endif /* __PRIVATE_SPI__ */
+            result = true;
+
+            break;
+    }
+    
+    DebugLog("disable() <===\n");
+    
+    return result;
+}
+
+bool RTL8111::setActivationLevel(UInt32 level) {
+    bool result = false;
+    UInt32 nextLevel;
+    
+    if (currentLevel == level) {
+        return true;
+    }
+    
+    for (; currentLevel > level; currentLevel--) {
+        if ((result = disableAdapter(currentLevel)) == false) {
+            break;
+        }
+    }
+    for (nextLevel = currentLevel + 1; currentLevel < level; currentLevel++, nextLevel++) {
+        if ((result = enableAdapter(nextLevel)) == false) {
+            break;
+        }
+    }
+    
+    return result;
+}
+
+
+
 /* IONetworkController methods. */
 IOReturn RTL8111::enable(IONetworkInterface *netif)
 {
-    const IONetworkMedium *selectedMedium;
-    IOReturn result = kIOReturnError;
-    
-    DebugLog("enable() ===>\n");
-
-    if (isEnabled) {
-        DebugLog("Ethernet [RealtekRTL8111]: Interface already enabled.\n");
-        result = kIOReturnSuccess;
-        goto done;
+    if (enabledByBSD == true) {
+        return kIOReturnSuccess;
     }
-    if (!pciDevice || pciDevice->isOpen()) {
-        IOLog("Ethernet [RealtekRTL8111]: Unable to open PCI device.\n");
-        goto done;
-    }
-    pciDevice->open(this);
     
-    if (!setupDMADescriptors()) {
-        IOLog("Ethernet [RealtekRTL8111]: Error allocating DMA descriptors.\n");
-        goto done;
-    }
-#define BFE_BUFFER_SIZE        (1518+32)
-    fKDPMbuf = allocatePacket(BFE_BUFFER_SIZE);
-    if (!fKDPMbuf || txMbufCursor->getPhysicalSegments(fKDPMbuf, &fKDPMbufSeg) != 1)
-    {
-        IOLog("Ethernet [RealtekRTL8111]L Error allocating debugger packet.\n");
-        goto done;
-    }
-
-    
-    selectedMedium = getSelectedMedium();
-    
-    if (!selectedMedium) {
-        DebugLog("Ethernet [RealtekRTL8111]: No medium selected. Falling back to autonegotiation.\n");
-        selectedMedium = mediumTable[MEDIUM_INDEX_AUTO];
-    }
-    selectMedium(selectedMedium);
-    enableRTL8111();
-    
-    /* We have to enable the interrupt because we are using a msi interrupt. */
-    interruptSource->enable();
-
-    txDescDoneCount = txDescDoneLast = 0;
-    deadlockWarn = 0;
-    needsUpdate = false;
-    isEnabled = true;
-    
-#ifdef __PRIVATE_SPI__
-    polling = false;
-#else
-    txQueue->setCapacity(kTransmitQueueCapacity);
-    stalled = false;
-#endif /* __PRIVATE_SPI__ */
-
-    if (!revisionC)
-        timerSource->setTimeoutMS(kTimeoutMS);
-    
-    result = kIOReturnSuccess;
-    
-    DebugLog("enable() <===\n");
-
-done:
-    return result;
+    enabledByBSD = setActivationLevel(kActivationLevelBSD);
+    return enabledByBSD ? kIOReturnSuccess : kIOReturnIOError;
 }
 
 IOReturn RTL8111::disable(IONetworkInterface *netif)
 {
-    IOReturn result = kIOReturnSuccess;
-    
-    DebugLog("disable() ===>\n");
-    
-    if (!isEnabled)
-        goto done;
-    
-#ifdef __PRIVATE_SPI__
-    netif->stopOutputThread();
-    netif->flushOutputQueue();
-    
-    polling = false;
-#else
-    txQueue->stop();
-    txQueue->flush();
-    txQueue->setCapacity(0);
-    stalled = false;
-#endif /* __PRIVATE_SPI__ */
-
-    isEnabled = false;
-
-    timerSource->cancelTimeout();
-    needsUpdate = false;
-    txDescDoneCount = txDescDoneLast = 0;
-
-    /* Disable interrupt as we are using msi. */
-    interruptSource->disable();
-
-    disableRTL8111();
-    
-    txClearDescriptors();
-    
-    if (pciDevice && pciDevice->isOpen())
-        pciDevice->close(this);
-    
-    freeDMADescriptors();
-    
-    DebugLog("disable() <===\n");
-    
-done:
-    return result;
+    enabledByBSD = false;
+    setActivationLevel(enabledByKDP ? kActivationLevelKDP : kActivationLevelDisable);
+    return kIOReturnSuccess;
 }
 
 #ifdef __PRIVATE_SPI__
